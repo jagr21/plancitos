@@ -147,10 +147,15 @@
             useEffect(() => {
                 if (selectedPlan || formPlan) {
                     document.body.style.overscrollBehaviorY = 'contain';
+                    document.body.style.overflow = 'hidden';
                 } else {
                     document.body.style.overscrollBehaviorY = 'auto';
+                    document.body.style.overflow = 'auto';
                 }
-                return () => { document.body.style.overscrollBehaviorY = 'auto'; };
+                return () => { 
+                    document.body.style.overscrollBehaviorY = 'auto';
+                    document.body.style.overflow = 'auto';
+                };
             }, [!!selectedPlan, !!formPlan]);
 
             // Manejo de navegación "atrás" y gestos swipe
@@ -763,10 +768,11 @@
                                     <div className="absolute inset-0 bg-gradient-to-t from-white via-white/40 to-black/10"></div>
                                     <div className="w-12 h-1.5 bg-white/60 backdrop-blur rounded-full mx-auto absolute top-4 left-1/2 -translate-x-1/2"></div>
                                     
+                                    <button onClick={() => setSelectedPlan(null)} className="absolute top-6 left-6 p-2 text-white/70 hover:text-white active:scale-90 transition-all z-30">
+                                        <i data-lucide="x" className="w-6 h-6"></i>
+                                    </button>
+
                                     <div className="absolute top-6 right-6 flex gap-2">
-                                        <button onClick={() => setSelectedPlan(null)} className="p-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl text-white/80 shadow-xl active:scale-90 transition-all">
-                                            <i data-lucide="x" className="w-5 h-5 drop-shadow-md"></i>
-                                        </button>
                                         <button onClick={() => setFormPlan(selectedPlan)} className="p-3 bg-white/20 backdrop-blur-xl border border-white/30 rounded-2xl text-white shadow-xl active:scale-90 transition-all">
                                             <i key="btn-edit" data-lucide="pencil" className="w-5 h-5 drop-shadow-md"></i>
                                         </button>
