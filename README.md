@@ -1,8 +1,8 @@
 # 🌴 Plancitos para el Fin
 
-> Un feed social y minimalista para descubrir y organizar actividades de fin de semana.
+> Feed minimalista para descubrir y organizar actividades para el fin de semana.
 
-Prototipo de aplicación web moderna y limpia diseñada para uso personal y de un grupo cerrado de amigos. Permite catalogar opciones de esparcimiento, ordenadas por presupuesto, logística y categorías, integrando elementos visuales dinámicos.
+Prototipo de aplicación web moderna diseñada para uso personal y de un grupo cerrado de amigos. Permite catalogar opciones de esparcimiento, ordenadas por presupuesto, logística y categorías, integrando elementos visuales dinámicos.
 
 ---
 
