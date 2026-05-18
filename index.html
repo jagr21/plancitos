@@ -141,7 +141,17 @@
                     if (window.lucide) lucide.createIcons();
                 }, 0);
                 return () => clearTimeout(timer);
-            }, [plans, view, selectedPlan, formPlan, user, authMessage, showUserMenu, showDeleteConfirm]);
+            }, [plans, view, selectedPlan, formPlan, user, authMessage, showUserMenu, showDeleteConfirm, swipeY]);
+
+            // Desactivar Pull-to-Refresh cuando los modales están abiertos
+            useEffect(() => {
+                if (selectedPlan || formPlan) {
+                    document.body.style.overscrollBehaviorY = 'contain';
+                } else {
+                    document.body.style.overscrollBehaviorY = 'auto';
+                }
+                return () => { document.body.style.overscrollBehaviorY = 'auto'; };
+            }, [!!selectedPlan, !!formPlan]);
 
             // Manejo de navegación "atrás" y gestos swipe
             const [swipeY, setSwipeY] = useState(0);
@@ -599,6 +609,9 @@
                                 className="drawer-content relative w-full max-w-md bg-white rounded-t-[40px] p-8 pb-12 shadow-2xl max-h-[95vh] overflow-y-auto"
                             >
                                 <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6"></div>
+                                <button type="button" onClick={() => setFormPlan(null)} className="absolute top-6 right-6 p-2 text-slate-300 hover:text-slate-500 active:scale-90 transition-all">
+                                    <i data-lucide="x" className="w-6 h-6"></i>
+                                </button>
                                 <h2 className="text-2xl font-bold mb-6 text-slate-900">{formPlan.id ? 'Editar Plan' : 'Nuevo Plancito'}</h2>
                                 
                                 <div className="space-y-4">
@@ -751,6 +764,9 @@
                                     <div className="w-12 h-1.5 bg-white/60 backdrop-blur rounded-full mx-auto absolute top-4 left-1/2 -translate-x-1/2"></div>
                                     
                                     <div className="absolute top-6 right-6 flex gap-2">
+                                        <button onClick={() => setSelectedPlan(null)} className="p-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl text-white/80 shadow-xl active:scale-90 transition-all">
+                                            <i data-lucide="x" className="w-5 h-5 drop-shadow-md"></i>
+                                        </button>
                                         <button onClick={() => setFormPlan(selectedPlan)} className="p-3 bg-white/20 backdrop-blur-xl border border-white/30 rounded-2xl text-white shadow-xl active:scale-90 transition-all">
                                             <i key="btn-edit" data-lucide="pencil" className="w-5 h-5 drop-shadow-md"></i>
                                         </button>
