@@ -141,7 +141,7 @@
                     if (window.lucide) lucide.createIcons();
                 }, 0);
                 return () => clearTimeout(timer);
-            }, [plans, view, selectedPlan, formPlan, user, authMessage, showUserMenu, showDeleteConfirm, swipeY]);
+            }, [plans, view, selectedPlan, formPlan, user, authMessage, showUserMenu, showDeleteConfirm]);
 
             // Desactivar Pull-to-Refresh cuando los modales están abiertos
             useEffect(() => {
@@ -157,11 +157,6 @@
                     document.body.style.overflow = 'auto';
                 };
             }, [!!selectedPlan, !!formPlan]);
-
-            // Manejo de navegación "atrás" y gestos swipe
-            const [swipeY, setSwipeY] = useState(0);
-            const [isDragging, setIsDragging] = useState(false);
-            const [touchStartY, setTouchStartY] = useState(0);
 
             useEffect(() => {
                 const handlePopState = () => {
@@ -599,18 +594,6 @@
                             <div className="modal-overlay absolute inset-0" onClick={() => setFormPlan(null)}></div>
                             <form 
                                 onSubmit={savePlan} 
-                                onTouchStart={(e) => { setTouchStartY(e.touches[0].clientY); setIsDragging(true); }}
-                                onTouchMove={(e) => {
-                                    if (!isDragging) return;
-                                    const diff = e.touches[0].clientY - touchStartY;
-                                    if (diff > 0) setSwipeY(diff);
-                                }}
-                                onTouchEnd={(e) => {
-                                    setIsDragging(false);
-                                    if (swipeY > 100) setFormPlan(null);
-                                    setSwipeY(0);
-                                }}
-                                style={{ transform: `translateY(${swipeY}px)`, transition: isDragging ? 'none' : 'transform 0.5s cubic-bezier(0.32, 0.72, 0, 1)' }}
                                 className="drawer-content relative w-full max-w-md bg-white rounded-t-[40px] p-8 pb-12 shadow-2xl max-h-[95vh] overflow-y-auto"
                             >
                                 <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6"></div>
@@ -748,18 +731,6 @@
                         <div className="fixed inset-0 z-[100] flex items-end justify-center">
                             <div className="modal-overlay absolute inset-0" onClick={() => setSelectedPlan(null)}></div>
                             <div 
-                                onTouchStart={(e) => { setTouchStartY(e.touches[0].clientY); setIsDragging(true); }}
-                                onTouchMove={(e) => {
-                                    if (!isDragging) return;
-                                    const diff = e.touches[0].clientY - touchStartY;
-                                    if (diff > 0) setSwipeY(diff);
-                                }}
-                                onTouchEnd={(e) => {
-                                    setIsDragging(false);
-                                    if (swipeY > 100) setSelectedPlan(null);
-                                    setSwipeY(0);
-                                }}
-                                style={{ transform: `translateY(${swipeY}px)`, transition: isDragging ? 'none' : 'transform 0.5s cubic-bezier(0.32, 0.72, 0, 1)' }}
                                 className="drawer-content relative w-full max-w-md bg-white rounded-t-[40px] shadow-2xl max-h-[92vh] overflow-y-auto no-scrollbar"
                             >
                                 {/* Hero Image Section */}
@@ -833,7 +804,7 @@
                                 <a 
                                     href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedPlan.location + " Lecheria")}`}
                                     target="_blank"
-                                    className="w-full py-5 bg-slate-900 text-white rounded-[24px] font-bold text-sm shadow-xl shadow-slate-200 flex items-center justify-center gap-3"
+                                    className="w-[90%] mx-auto mb-10 py-5 bg-slate-900 text-white rounded-[24px] font-bold text-sm shadow-xl shadow-slate-200 flex items-center justify-center gap-3"
                                 >
                                     <i data-lucide="map" className="w-4 h-4"></i> Cómo llegar con Google Maps
                                 </a>
