@@ -16,12 +16,26 @@
         body { font-family: 'Inter', sans-serif; background-color: #fafafa; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .glass { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(10px); }
-        .reel-container { scroll-snap-type: y mandatory; height: 70vh; overflow-y: scroll; border-radius: 24px; }
+        .reel-container { scroll-snap-type: y mandatory; height: 100%; overflow-y: scroll; border-radius: 24px; }
         .reel-item { scroll-snap-align: start; height: 70vh; margin-bottom: 20px; }
         .drawer-content { transition: transform 0.3s ease-out; }
         .modal-overlay { background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(4px); }
         .font-serif-aesthetic { font-family: 'Playfair Display', serif; }
         i[data-lucide] { display: inline-block; vertical-align: middle; }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+        .animate-fade-out {
+            animation: fadeOut 0.4s ease-out forwards;
+        }
     </style>
 </head>
 <body>
@@ -39,13 +53,23 @@
         const TIKTOK_SEARCHES = ["planes lechería", "comer en lechería", "playas mochima", "nuevo local lechería"];
 
         function App() {
+            const [authChecking, setAuthChecking] = useState(true);
+            const [isLoadingData, setIsLoadingData] = useState(true);
             const [plans, setPlans] = useState([]);
             const [savedIds, setSavedIds] = useState([]);
+            const [completedIds, setCompletedIds] = useState([]);
+            const [showLoadingOverlay, setShowLoadingOverlay] = useState(true); // Controla la visibilidad de la pantalla de carga
+            const [isFadingOut, setIsFadingOut] = useState(false); // Controla si la pantalla de carga está desvaneciéndose
 
             const savedPlans = useMemo(() => {
                 if (!Array.isArray(plans) || !Array.isArray(savedIds)) return [];
                 return plans.filter(p => savedIds.includes(p.id));
             }, [plans, savedIds]);
+
+            const completedPlans = useMemo(() => {
+                if (!Array.isArray(plans) || !Array.isArray(completedIds)) return [];
+                return plans.filter(p => completedIds.includes(p.id));
+            }, [plans, completedIds]);
 
             const [filter, setFilter] = useState('Todos');
             const [view, setView] = useState('explore'); 
@@ -84,9 +108,13 @@
                         logistics: p.logística,
                         tips: (Array.isArray(p.tips) ? p.tips : (typeof p.tips === 'string' ? p.tips.split(',') : [])).map(t => t.trim()).filter(t => t && t !== '[]'),
                         price: p.presupuesto?.includes('$') ? p.presupuesto.split('-')[0].trim() : p.presupuesto, // Fallback simple para el label de precio
-                        tiktokId: p.tiktok_id // Asumiendo que podrías añadir este campo luego o guardarlo en otro lado
+                        tiktokId: p.tiktok_id,
+                        favorito: p.favorito,
+                        completado: p.completado
                     }));
                     setPlans(mappedPlans);
+                    setSavedIds(data.filter(p => p.favorito).map(p => p.id));
+                    setCompletedIds(data.filter(p => p.completado).map(p => p.id));
                     return data;
                 }
                 return [];
@@ -96,27 +124,32 @@
             useEffect(() => {
                 supabaseClient.auth.getSession().then(({ data: { session } }) => {
                     setUser(session?.user ?? null);
+                    setAuthChecking(false);
                 });
 
                 const { data: { subscription } } = supabaseClient.auth.onAuthStateChange((_event, session) => {
                     setUser(session?.user ?? null);
+                    setAuthChecking(false);
                 });
 
                 return () => subscription.unsubscribe();
             }, []);
 
             useEffect(() => {
-                if (!user) return;
+                if (!user) {
+                    setIsLoadingData(false);
+                    return;
+                }
                 
                 const checkAndSeed = async () => {
-                    console.log("Verificando planes del usuario...");
+                    setIsLoadingData(true);
                     const data = await fetchPlans();
                     const hasSeeded = localStorage.getItem(`seeded_${user.id}`);
                     
                     if ((!data || data.length === 0) && !hasSeeded) {
-                        console.log("Cuenta vacía detectada, iniciando carga de bienvenida...");
                         await seedDatabase();
                     }
+                    setIsLoadingData(false);
                 };
                 checkAndSeed();
 
@@ -141,7 +174,7 @@
                     if (window.lucide) lucide.createIcons();
                 }, 0);
                 return () => clearTimeout(timer);
-            }, [plans, view, selectedPlan, formPlan, user, authMessage, showUserMenu, showDeleteConfirm]);
+            }, [plans, view, selectedPlan, formPlan, user, authMessage, showUserMenu, showDeleteConfirm, showLoadingOverlay, isLoadingData, completedIds]);
 
             // Desactivar Pull-to-Refresh cuando los modales están abiertos
             useEffect(() => {
@@ -173,33 +206,9 @@
                 }
             }, [!!selectedPlan, !!formPlan]);
 
-            // Persistencia de favoritos en LocalStorage vinculada al usuario
-            useEffect(() => {
-                if (user) {
-                    const stored = localStorage.getItem(`fav_ids_${user.id}`);
-                    if (stored) {
-                        try {
-                            const parsed = JSON.parse(stored);
-                            if (Array.isArray(parsed)) setSavedIds(parsed);
-                        } catch (e) {
-                            console.error("Error cargando favoritos", e);
-                            setSavedIds([]);
-                        }
-                    }
-                } else {
-                    setSavedIds([]);
-                }
-            }, [user]);
-
-            useEffect(() => {
-                if (user) {
-                    localStorage.setItem(`fav_ids_${user.id}`, JSON.stringify(savedIds));
-                }
-            }, [savedIds, user]);
-
             useEffect(() => {
                 if (authMessage) {
-                    const timer = setTimeout(() => setAuthMessage(null), 5000);
+                    const timer = setTimeout(() => setAuthMessage(null), 2000);
                     return () => clearTimeout(timer);
                 }
             }, [authMessage]);
@@ -234,6 +243,22 @@
                 }
             }, [formPlan]);
 
+            useEffect(() => {
+                const initialLoadComplete = !authChecking && (!user || (user && !isLoadingData));
+                if (initialLoadComplete && showLoadingOverlay && !isFadingOut) {
+                    setIsFadingOut(true);
+                }
+            }, [authChecking, isLoadingData, user, showLoadingOverlay, isFadingOut]);
+
+            useEffect(() => {
+                if (isFadingOut) {
+                    const timer = setTimeout(() => {
+                        setShowLoadingOverlay(false);
+                    }, 400);
+                    return () => clearTimeout(timer);
+                }
+            }, [isFadingOut]);
+
             // Lógica para cargar videos de TikTok dinámicamente
             useEffect(() => {
                 if (view === 'inspiration') {
@@ -261,9 +286,11 @@
             };
 
             const filteredPlans = useMemo(() => {
-                if (filter === 'Todos') return plans;
-                return plans.filter(p => p.category === filter);
-            }, [filter, plans]);
+                // Filtramos los que NO están completados para el feed principal
+                let base = plans.filter(p => !completedIds.includes(p.id));
+                if (filter === 'Todos') return base;
+                return base.filter(p => p.category === filter);
+            }, [filter, plans, completedIds]);
 
             const isSaved = (id) => Array.isArray(savedIds) && savedIds.includes(id);
 
@@ -278,21 +305,53 @@
                 </svg>
             );
 
-            const toggleSave = (plan) => {
-                setSavedIds(prev => {
-                    const safePrev = Array.isArray(prev) ? prev : [];
-                    return safePrev.includes(plan.id) 
-                        ? safePrev.filter(id => id !== plan.id) 
-                        : [...safePrev, plan.id];
-                });
+            const toggleSave = async (plan) => {
+                const wasSaved = isSaved(plan.id);
+                const { error } = await supabaseClient
+                    .from('planes')
+                    .update({ favorito: !wasSaved })
+                    .eq('id', plan.id);
+
+                if (error) {
+                    setAuthMessage({ type: 'error', text: "Error al actualizar favorito" });
+                } else {
+                    setAuthMessage({ 
+                        type: 'success', 
+                        text: wasSaved ? "Eliminado de favoritos 💔" : "¡Marcado como favorito! ❤️" 
+                    });
+                }
+            };
+
+            const toggleComplete = async (id) => {
+                if (!id) return;
+                const wasCompleted = completedIds.includes(id);
+                
+                const { error } = await supabaseClient
+                    .from('planes')
+                    .update({ completado: !wasCompleted })
+                    .eq('id', id);
+
+                if (error) {
+                    setAuthMessage({ type: 'error', text: "Error al actualizar estado" });
+                } else {
+                    setAuthMessage({ 
+                        type: 'success', 
+                        text: wasCompleted ? "Plancito devuelto al feed 🌴" : "¡Brutal! Plancito completado ✨" 
+                    });
+
+                    if (!wasCompleted) {
+                        // Cerramos el detalle con un ligero delay para que se vea el cambio de color
+                        setTimeout(() => setSelectedPlan(null), 600);
+                    }
+                }
             };
 
             const optimizeImgUrl = (url) => {
                 if (!url) return '';
-                // Si es un link de Unsplash, forzamos parámetros de ligereza (800px de ancho, 60% calidad)
+                // Si es un link de Unsplash, forzamos parámetros de ligereza (500px de ancho, 60% calidad)
                 if (url.includes('unsplash.com')) {
                     const baseUrl = url.split('?')[0];
-                    return `${baseUrl}?auto=format&fit=crop&q=60&w=800`;
+                    return `${baseUrl}?auto=format&fit=crop&q=60&w=500`;
                 }
                 return url;
             };
@@ -321,8 +380,10 @@
 
                 if (formPlan.id) {
                     await supabaseClient.from('planes').update(supabasePayload).eq('id', formPlan.id);
+                    setAuthMessage({ type: 'success', text: "¡Plancito actualizado! 💾" });
                 } else {
                     await supabaseClient.from('planes').insert([supabasePayload]);
+                    setAuthMessage({ type: 'success', text: "¡Nuevo plancito creado! ✨" });
                 }
                 
                 // Forzamos la actualización de la lista
@@ -362,6 +423,7 @@
                 if (error) {
                     setAuthMessage({ type: 'error', text: "Error al eliminar el plancito" });
                 } else {
+                    setAuthMessage({ type: 'success', text: "Plancito eliminado con éxito 🗑️" });
                     // Forzamos la actualización de la lista
                     await fetchPlans();
                     setFormPlan(null);
@@ -381,7 +443,7 @@
                     console.error("Error al buscar plantillas:", fetchError);
                     return;
                 }
-
+                
                 if (!templates || templates.length === 0) {
                     console.warn("No se encontraron planes maestros en la DB. Asegúrate de que user_id sea NULL.");
                     return;
@@ -404,11 +466,13 @@
                 }
             };
 
-            if (!user) {
-                return (
-                    <div className="max-w-md mx-auto min-h-screen flex items-center justify-center p-8 bg-white shadow-2xl">
+            const renderContent = () => {
+                if (authChecking) return null;
+                if (!user) {
+                    return (
+                        <div className="max-w-md mx-auto min-h-screen flex items-center justify-center p-8 bg-white shadow-2xl animate-fade-in">
                         {authMessage && (
-                            <div className={`fixed top-10 left-1/2 -translate-x-1/2 z-[200] w-[80%] max-w-[320px] px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-3 transition-all border animate-in fade-in slide-in-from-top-4 duration-300 ${authMessage.type === 'error' ? 'bg-red-50 border-red-100 text-red-600' : 'bg-green-50 border-green-100 text-green-600'}`}>
+                            <div className={`fixed bottom-12 left-1/2 -translate-x-1/2 z-[200] w-[80%] max-w-[320px] px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-3 transition-all border animate-in fade-in slide-in-from-bottom-4 duration-300 ${authMessage.type === 'error' ? 'bg-red-50 border-red-100 text-red-600' : 'bg-green-50 border-green-100 text-green-600'}`}>
                                 <i data-lucide={authMessage.type === 'error' ? 'alert-circle' : 'check-circle'} className="w-5 h-5 flex-shrink-0"></i>
                                 <p className="text-[11px] font-bold leading-tight">{authMessage.text}</p>
                             </div>
@@ -439,19 +503,32 @@
                         </div>
                     </div>
                 );
-            }
+                }
 
-            return (
-                <div className="max-w-md mx-auto min-h-screen pb-24 relative bg-white shadow-2xl">
+                // Solo bloqueamos el renderizado si es la carga inicial (mientras el overlay está visible)
+                if (isLoadingData && showLoadingOverlay) return null;
+
+                return (
+                <div className="max-w-md mx-auto h-screen flex flex-col relative bg-white shadow-2xl animate-fade-in overflow-hidden">
+                    {/* Mensajes de feedback (Toasts) */}
+                    {authMessage && (
+                        <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[200] w-[80%] max-w-[320px] px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-3 bg-white/80 backdrop-blur-xl border border-slate-100 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${authMessage.type === 'error' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                                <i data-lucide={authMessage.type === 'error' ? 'alert-circle' : 'check-circle'} className="w-4 h-4"></i>
+                            </div>
+                            <p className="text-[11px] font-bold text-slate-800 leading-tight">{authMessage.text}</p>
+                        </div>
+                    )}
+
                     {/* Header */}
-                    <header className="p-7 sticky top-0 z-50 glass border-b border-slate-50">
+                    <header className="p-7 flex-none glass border-b border-slate-50 z-50">
                         <div className="flex justify-between items-center mb-7">
                             <div>
                                 <div className="flex items-center gap-2">
                                     <h1 className="text-4xl font-black tracking-tighter text-slate-900 leading-none">Plancitos</h1>
                                     <span className="text-3xl">🌴</span>
                                 </div>
-                                <p className="text-2xl text-blue-500 font-serif-aesthetic italic lowercase leading-none mt-1">{view === 'saved' ? 'mis guardados' : 'para el fin'}</p>
+                                <p className="text-2xl text-blue-500 font-serif-aesthetic italic lowercase leading-none mt-1">{view === 'saved' ? 'mis favoritos' : 'para el fin'}</p>
                             </div>
                             <div className="flex gap-2">
                                 <button onClick={() => setView('saved')} className="relative p-2 bg-slate-50 rounded-full cursor-pointer active:scale-90 transition-all border-none outline-none">
@@ -483,10 +560,11 @@
                             </div>
                         </div>
                         
-                        <div className="flex gap-6 mb-2">
+                        <div className="flex gap-4 overflow-x-auto no-scrollbar mb-2">
                             <button onClick={() => setView('explore')} className={`pb-2 text-sm font-semibold transition-all ${view === 'explore' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-slate-400'}`}>Explorar</button>
                             <button onClick={() => setView('inspiration')} className={`pb-2 text-sm font-semibold transition-all ${view === 'inspiration' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-slate-400'}`}>Inspiración</button>
-                            {view === 'saved' && <button className="pb-2 text-sm font-semibold border-b-2 border-red-500 text-red-600">Guardados</button>}
+                            <button onClick={() => setView('completed')} className={`pb-2 text-sm font-semibold transition-all ${view === 'completed' ? 'border-b-2 border-green-500 text-green-600' : 'text-slate-400'}`}>Completados</button>
+                            {view === 'saved' && <button className="pb-2 text-sm font-semibold border-b-2 border-red-500 text-red-600">Favoritos</button>}
                         </div>
 
                         {view === 'explore' && (
@@ -504,8 +582,8 @@
                         )}
                     </header>
 
-                    <main className="px-6 pt-4">
-                        {plans.length === 0 && view === 'explore' && (
+                    <main className="flex-1 overflow-y-auto no-scrollbar px-6 pt-4 pb-10">
+                        {plans.length === 0 && view === 'explore' && !isLoadingData && (
                             <div className="flex flex-col items-center justify-center py-20 text-center">
                                 <div className="bg-blue-50 p-6 rounded-[32px] mb-4">
                                     <i data-lucide="database" className="w-12 h-12 text-blue-500 opacity-50"></i>
@@ -515,9 +593,9 @@
                                 <button onClick={() => setFormPlan({})} className="bg-slate-900 text-white px-6 py-3 rounded-2xl text-xs font-bold shadow-lg active:scale-95 transition-all">Cargar nuevo plancito</button>
                             </div>
                         )}
-                        {view === 'explore' || view === 'saved' ? (
+                        {view === 'explore' || view === 'saved' || view === 'completed' ? (
                             <div className="grid grid-cols-1 gap-8">
-                                {(view === 'explore' ? filteredPlans : savedPlans).map(plan => (
+                                {(view === 'explore' ? filteredPlans : view === 'saved' ? savedPlans : completedPlans).map(plan => (
                                     <div 
                                         key={plan.id} 
                                         onClick={() => setSelectedPlan(plan)}
@@ -547,8 +625,15 @@
                                 {view === 'saved' && savedPlans.length === 0 && (
                                     <div className="flex flex-col items-center justify-center py-20 text-slate-400 text-center">
                                         <i data-lucide="heart" className="w-12 h-12 mb-4 opacity-20"></i>
-                                        <p className="text-sm font-medium">No tienes planes guardados aún.</p>
+                                        <p className="text-sm font-medium">No tienes favoritos aún.</p>
                                         <button onClick={() => setView('explore')} className="mt-4 text-blue-500 text-xs font-bold underline">Explorar planes</button>
+                                    </div>
+                                )}
+                                {view === 'completed' && completedPlans.length === 0 && (
+                                    <div className="flex flex-col items-center justify-center py-20 text-slate-400 text-center">
+                                        <i data-lucide="check-circle" className="w-12 h-12 mb-4 opacity-20 text-green-500"></i>
+                                        <p className="text-sm font-medium">Aún no has completado ningún plancito.</p>
+                                        <button onClick={() => setView('explore')} className="mt-4 text-green-600 text-xs font-bold underline">¡A por el primero!</button>
                                     </div>
                                 )}
                             </div>
@@ -563,7 +648,7 @@
                                     ))}
                                 </div>
 
-                                {plans.map(plan => (
+                                {plans.filter(p => !completedIds.includes(p.id)).map(plan => (
                                     <div key={plan.id} className="reel-item relative w-full bg-white flex flex-col items-center justify-start overflow-hidden rounded-[32px] border border-slate-100 shadow-lg">
                                         <div className="w-full h-full overflow-y-auto no-scrollbar pt-4 px-2">
                                             <blockquote 
@@ -750,6 +835,9 @@
                                         <button onClick={() => toggleSave(selectedPlan)} className="p-3 bg-white/20 backdrop-blur-xl border border-white/30 rounded-2xl shadow-xl active:scale-90 transition-all">
                                             <HeartSVG filled={isSaved(selectedPlan.id)} className={`w-6 h-6 ${isSaved(selectedPlan.id) ? 'text-red-500' : 'text-white drop-shadow-md'}`} />
                                         </button>
+                                        <button onClick={() => toggleComplete(selectedPlan.id)} className="p-3 bg-white/20 backdrop-blur-xl border border-white/30 rounded-2xl shadow-xl active:scale-90 transition-all">
+                                            <i data-lucide="check-circle" className={`w-6 h-6 transition-colors ${completedIds.includes(selectedPlan.id) ? 'text-green-500' : 'text-white drop-shadow-md'}`}></i>
+                                        </button>
                                     </div>
 
                                     <div className="relative p-8 w-full backdrop-blur-[2px] bg-white/10">
@@ -831,7 +919,7 @@
                     )}
 
                     {/* Tab Bar Navegación */}
-                    <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto glass border-t border-slate-100 p-4 px-6 flex justify-between items-center rounded-t-[32px]">
+                    <nav className="flex-none glass border-t border-slate-100 p-4 px-6 flex justify-between items-center rounded-t-[32px] shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)]">
                         <button onClick={() => setView('explore')} className={`flex flex-col items-center gap-1.5 ${view === 'explore' ? 'text-blue-600' : 'text-slate-400'}`}>
                             <i data-lucide="filter" className="w-5 h-5"></i>
                             <span className="text-[9px] font-bold uppercase tracking-tighter">Explorar</span>
@@ -859,9 +947,26 @@
                                 <i data-lucide="bookmark" className="w-5 h-5"></i>
                                 {savedPlans.length > 0 && <span key="dot-fav" className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></span>}
                             </div>
-                            <span className="text-[9px] font-bold uppercase tracking-tighter">Guardados</span>
+                            <span className="text-[9px] font-bold uppercase tracking-tighter">Favoritos</span>
                         </button>
                     </nav>
+                </div>
+            );
+            };
+
+            return (
+                <div className="relative">
+                    {/* Pantalla de Carga (Telón) */}
+                    {showLoadingOverlay && (
+                        <div className={`fixed inset-0 z-[1000] flex flex-col items-center justify-center bg-white p-8 ${isFadingOut ? 'animate-fade-out pointer-events-none' : ''}`}>
+                            <div className="text-center animate-pulse">
+                                <h1 className="text-5xl font-black tracking-tighter text-slate-900 mb-2">Plancitos🌴</h1>
+                                <p className="text-xl text-blue-500 font-serif-aesthetic italic">preparando tu feed...</p>
+                            </div>
+                        </div>
+                    )}
+                    {/* Contenido de la App */}
+                    {renderContent()}
                 </div>
             );
         }
