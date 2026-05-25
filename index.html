@@ -53,38 +53,66 @@
             const [authChecking, setAuthChecking] = useState(true);
             const [isLoadingData, setIsLoadingData] = useState(true);
             const [plans, setPlans] = useState([]);
-            const [savedIds, setSavedIds] = useState([]);
-            const [completedIds, setCompletedIds] = useState([]);
             const [showLoadingOverlay, setShowLoadingOverlay] = useState(true); // Controla la visibilidad de la pantalla de carga
             const [isFadingOut, setIsFadingOut] = useState(false); // Controla si la pantalla de carga está desvaneciéndose
             const [userCity, setUserCity] = useState(() => localStorage.getItem('plancitos_city') || '');
             const [isNavVisible, setIsNavVisible] = useState(true);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [isSearching, setIsSearching] = useState(false);
+            const [filter, setFilter] = useState('Todos');
+            const [view, setView] = useState('explore'); 
+            const [selectedPlan, setSelectedPlan] = useState(null);
+            const [formPlan, setFormPlan] = useState(null); 
+            const [completionPlan, setCompletionPlan] = useState(null);
+            const [user, setUser] = useState(null);
+            const [authMode, setAuthMode] = useState('login');
+            const [authMessage, setAuthMessage] = useState(null);
+            const [showUserMenu, setShowUserMenu] = useState(false);
+            const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+            const [showUncompleteConfirm, setShowUncompleteConfirm] = useState(false);
+            const [planToUncomplete, setPlanToUncomplete] = useState(null);
+            const [unsplashResults, setUnsplashResults] = useState([]);
+            const [searchQuery, setSearchQuery] = useState('');
+            const [rating, setRating] = useState(0);
+            const [hoverRating, setHoverRating] = useState(0);
+
             const dragStartY = React.useRef(0);
             const isDragging = React.useRef(false);
             const lastScrollTop = React.useRef(0);
             const searchCache = React.useRef({});
+            const searchRef = React.useRef(null);
+
+            const normalize = (str) => str ? str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+
+            // Memos movidos después de las declaraciones de estado
+            const savedIds = useMemo(() => plans.filter(p => p.favorito).map(p => p.id), [plans]);
+            const completedIds = useMemo(() => plans.filter(p => p.completado).map(p => p.id), [plans]);
 
             const savedPlans = useMemo(() => {
-                if (!Array.isArray(plans) || !Array.isArray(savedIds)) return [];
-                return plans.filter(p => savedIds.includes(p.id));
-            }, [plans, savedIds]);
+                let list = plans.filter(p => p.favorito);
+                if (filter !== 'Todos') list = list.filter(p => p.category === filter);
+                if (searchTerm) {
+                    const q = normalize(searchTerm);
+                    list = list.filter(p => 
+                        normalize(p.title).includes(q) || normalize(p.description).includes(q) || 
+                        normalize(p.location).includes(q) || normalize(p.category).includes(q)
+                    );
+                }
+                return list;
+            }, [plans, searchTerm, filter]);
 
             const completedPlans = useMemo(() => {
-                if (!Array.isArray(plans) || !Array.isArray(completedIds)) return [];
-                return plans.filter(p => completedIds.includes(p.id));
-            }, [plans, completedIds]);
-
-            const [filter, setFilter] = useState('Todos');
-            const [view, setView] = useState('explore'); 
-            const [selectedPlan, setSelectedPlan] = useState(null);
-            const [formPlan, setFormPlan] = useState(null); // null = cerrado, {} = nuevo, {id...} = editando
-            const [user, setUser] = useState(null);
-            const [authMode, setAuthMode] = useState('login'); // 'login' o 'signup'
-            const [authMessage, setAuthMessage] = useState(null); // { type: 'success'|'error', text: string }
-            const [showUserMenu, setShowUserMenu] = useState(false);
-            const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-            const [unsplashResults, setUnsplashResults] = useState([]);
-            const [searchQuery, setSearchQuery] = useState('');
+                let list = plans.filter(p => p.completado);
+                if (filter !== 'Todos') list = list.filter(p => p.category === filter);
+                if (searchTerm) {
+                    const q = normalize(searchTerm);
+                    list = list.filter(p => 
+                        normalize(p.title).includes(q) || normalize(p.description).includes(q) || 
+                        normalize(p.location).includes(q) || normalize(p.category).includes(q)
+                    );
+                }
+                return list;
+            }, [plans, searchTerm, filter]);
 
             // Canales de búsqueda para inspiración (Hashtags inteligentes)
             const inspirationChannels = useMemo(() => {
@@ -125,12 +153,13 @@
                         tips: (Array.isArray(p.tips) ? p.tips : (typeof p.tips === 'string' ? p.tips.split(',') : [])).map(t => t.trim()).filter(t => t && t !== '[]'),
                         price: p.presupuesto?.includes('$') ? p.presupuesto.split('-')[0].trim() : p.presupuesto, // Fallback simple para el label de precio
                         tiktokId: p.tiktok_id,
-                        favorito: p.favorito,
-                        completado: p.completado
+                        favorito: !!p.favorito,
+                        completado: !!p.completado,
+                        completedDate: p.fecha_completado,
+                        rating: p.puntuacion,
+                        completionComment: p.comentario_completado
                     }));
                     setPlans(mappedPlans);
-                    setSavedIds(data.filter(p => p.favorito).map(p => p.id));
-                    setCompletedIds(data.filter(p => p.completado).map(p => p.id));
                     return data;
                 }
                 return [];
@@ -175,8 +204,18 @@
                     .on('postgres_changes', 
                         { event: '*', schema: 'public', table: 'planes', filter: `user_id=eq.${user.id}` }, 
                         (payload) => {
-                            console.log('Cambio detectado en DB:', payload);
-                            fetchPlans();
+                            if (payload.eventType === 'UPDATE') {
+                                // Actualización inteligente: solo cambiamos el plan afectado sin recargar todo
+                                const updated = payload.new;
+                                setPlans(prev => prev.map(p => p.id === updated.id ? { 
+                                    ...p, 
+                                    favorito: !!updated.favorito, 
+                                    completado: !!updated.completado 
+                                } : p));
+                            } else if (payload.eventType === 'INSERT' || payload.eventType === 'DELETE') {
+                                // Para nuevos planes o borrados, sí necesitamos refrescar la lista completa
+                                fetchPlans();
+                            }
                         }
                     )
                     .subscribe();
@@ -193,13 +232,24 @@
                     } catch (e) {
                         console.warn("Lucide icons not ready");
                     }
-                }, 150);
+                }, 0);
                 return () => clearTimeout(timer);
-            }, [plans, view, selectedPlan, formPlan, user, authMessage, showUserMenu, showDeleteConfirm, showLoadingOverlay, isLoadingData, completedIds, userCity]);
+            }, [plans, view, selectedPlan, formPlan, completionPlan, user, authMessage, showUserMenu, showDeleteConfirm, showUncompleteConfirm, showLoadingOverlay, isLoadingData, completedIds, userCity, isSearching, searchTerm]);
+
+            useEffect(() => {
+                const handleClickOutside = (event) => {
+                    if (isSearching && searchRef.current && !searchRef.current.contains(event.target)) {
+                        setIsSearching(false);
+                        setSearchTerm('');
+                    }
+                };
+                document.addEventListener('mousedown', handleClickOutside);
+                return () => document.removeEventListener('mousedown', handleClickOutside);
+            }, [isSearching]);
 
             // Desactivar Pull-to-Refresh cuando los modales están abiertos
             useEffect(() => {
-                if (selectedPlan || formPlan) {
+                if (selectedPlan || formPlan || completionPlan || showUncompleteConfirm || showDeleteConfirm) {
                     document.body.style.overscrollBehaviorY = 'contain';
                     document.body.style.overflow = 'hidden';
                 } else {
@@ -210,22 +260,24 @@
                     document.body.style.overscrollBehaviorY = 'auto';
                     document.body.style.overflow = 'auto';
                 };
-            }, [!!selectedPlan, !!formPlan]);
+            }, [!!selectedPlan, !!formPlan, !!completionPlan, showUncompleteConfirm, showDeleteConfirm]);
 
             useEffect(() => {
                 const handlePopState = () => {
                     setSelectedPlan(null);
                     setFormPlan(null);
+                    setCompletionPlan(null);
+                    setShowUncompleteConfirm(false);
                 };
                 window.addEventListener('popstate', handlePopState);
                 return () => window.removeEventListener('popstate', handlePopState);
             }, []);
 
             useEffect(() => {
-                if (selectedPlan || formPlan) {
+                if (selectedPlan || formPlan || completionPlan || showUncompleteConfirm || showDeleteConfirm) {
                     window.history.pushState({ modal: true }, '');
                 }
-            }, [!!selectedPlan, !!formPlan]);
+            }, [!!selectedPlan, !!formPlan, !!completionPlan, showUncompleteConfirm, showDeleteConfirm]);
 
             useEffect(() => {
                 if (authMessage) {
@@ -266,6 +318,13 @@
 
             // Limpiar búsqueda al cerrar formulario
             useEffect(() => {
+                // Reiniciar filtros al cambiar de pestaña para evitar confusión de contenido "oculto"
+                setFilter('Todos');
+                setSearchTerm('');
+                setIsSearching(false);
+            }, [view]);
+
+            useEffect(() => {
                 if (!formPlan) {
                     setSearchQuery('');
                     setUnsplashResults([]);
@@ -274,7 +333,7 @@
 
             useEffect(() => {
                 setIsNavVisible(true);
-            }, [view]);
+            }, [view, selectedPlan, formPlan]);
 
             useEffect(() => {
                 const initialLoadComplete = !authChecking && (!user || (user && !isLoadingData));
@@ -303,9 +362,20 @@
             const filteredPlans = useMemo(() => {
                 // Filtramos los que NO están completados para el feed principal
                 let base = plans.filter(p => !completedIds.includes(p.id));
-                if (filter === 'Todos') return base;
-                return base.filter(p => p.category === filter);
-            }, [filter, plans, completedIds]);
+                if (filter !== 'Todos') {
+                    base = base.filter(p => p.category === filter);
+                }
+                if (searchTerm) {
+                    const q = normalize(searchTerm);
+                    base = base.filter(p => 
+                        normalize(p.title).includes(q) || 
+                        normalize(p.description).includes(q) || 
+                        normalize(p.location).includes(q) || 
+                        normalize(p.category).includes(q)
+                    );
+                }
+                return base;
+            }, [filter, plans, completedIds, searchTerm]);
 
             const isSaved = (id) => Array.isArray(savedIds) && savedIds.includes(id);
 
@@ -322,12 +392,17 @@
 
             const toggleSave = async (plan) => {
                 const wasSaved = isSaved(plan.id);
+                
+                // 1. Actualización de UI Instantánea
+                setPlans(prev => prev.map(p => p.id === plan.id ? { ...p, favorito: !wasSaved } : p));
+
                 const { error } = await supabaseClient
                     .from('planes')
                     .update({ favorito: !wasSaved })
                     .eq('id', plan.id);
 
                 if (error) {
+                    setPlans(prev => prev.map(p => p.id === plan.id ? { ...p, favorito: wasSaved } : p));
                     setAuthMessage({ type: 'error', text: "Error al actualizar favorito" });
                 } else {
                     setAuthMessage({ 
@@ -337,27 +412,66 @@
                 }
             };
 
-            const toggleComplete = async (id) => {
-                if (!id) return;
-                const wasCompleted = completedIds.includes(id);
+            const toggleComplete = async (plan) => {
+                if (!plan.id) return;
+                const wasCompleted = completedIds.includes(plan.id);
                 
+                if (!wasCompleted) {
+                    setCompletionPlan(plan);
+                    setRating(5); // Default
+                    return;
+                }
+
+                // Si ya estaba completado, pedimos confirmación antes de borrar los datos asociados
+                setPlanToUncomplete(plan);
+                setShowUncompleteConfirm(true);
+            };
+
+            const confirmUncomplete = async () => {
+                if (!planToUncomplete) return;
+                const planId = planToUncomplete.id;
+
+                // Actualización optimista
+                setPlans(prev => prev.map(p => p.id === planId ? { ...p, completado: false, completedDate: null, rating: null, completionComment: null } : p));
+                setShowUncompleteConfirm(false);
+
                 const { error } = await supabaseClient
                     .from('planes')
-                    .update({ completado: !wasCompleted })
-                    .eq('id', id);
+                    .update({ completado: false, fecha_completado: null, puntuacion: null, comentario_completado: null })
+                    .eq('id', planId);
 
                 if (error) {
-                    setAuthMessage({ type: 'error', text: "Error al actualizar estado" });
+                    fetchPlans();
+                    setAuthMessage({ type: 'error', text: "Error al desmarcar plancito" });
                 } else {
-                    setAuthMessage({ 
-                        type: 'success', 
-                        text: wasCompleted ? "Plancito devuelto al feed 🌴" : "¡Plancito completado ✨" 
-                    });
-
-                    if (!wasCompleted) {
-                        // Cerramos el detalle con un ligero delay para que se vea el cambio de color
-                        setTimeout(() => setSelectedPlan(null), 600);
+                    setAuthMessage({ type: 'success', text: "Plancito devuelto al feed Explorar. 🌴" });
+                    // Si el detalle estaba abierto, lo cerramos para refrescar la vista
+                    if (selectedPlan && selectedPlan.id === planId) {
+                        setSelectedPlan(null);
                     }
+                }
+                setPlanToUncomplete(null);
+            };
+
+            const submitCompletion = async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.target);
+                const data = {
+                    completado: true,
+                    fecha_completado: formData.get('date'),
+                    puntuacion: rating,
+                    comentario_completado: formData.get('comment')
+                };
+
+                const { error } = await supabaseClient.from('planes').update(data).eq('id', completionPlan.id);
+                
+                if (error) {
+                    setAuthMessage({ type: 'error', text: "Error al guardar tu experiencia" });
+                } else {
+                    setAuthMessage({ type: 'success', text: "¡Plancito completado! ✨" });
+                    await fetchPlans();
+                    setCompletionPlan(null);
+                    setSelectedPlan(null);
                 }
             };
 
@@ -615,10 +729,10 @@
                             </div>
                             <div className="flex gap-2">
                                 <button onClick={() => setView('saved')} className="relative p-2 bg-slate-50 rounded-full cursor-pointer active:scale-90 transition-all border-none outline-none">
-                                    <HeartSVG filled={savedPlans.length > 0} className={`w-5 h-5 ${savedPlans.length > 0 ? 'text-red-500' : 'text-slate-400'}`} />
-                                    {savedPlans.length > 0 && (
+                                    <HeartSVG filled={savedIds.length > 0} className={`w-5 h-5 ${savedIds.length > 0 ? 'text-red-500' : 'text-slate-400'}`} />
+                                    {savedIds.length > 0 && (
                                         <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
-                                            {savedPlans.length}
+                                            {savedIds.length}
                                         </span>
                                     )}
                                 </button>
@@ -650,17 +764,40 @@
                             {view === 'saved' && <button className="pb-2 text-sm font-semibold border-b-2 border-red-500 text-red-600">Favoritos</button>}
                         </div>
 
-                        {view === 'explore' && (
-                            <div className="flex gap-2 overflow-x-auto no-scrollbar py-2">
-                                {['Todos', 'Outdoor', 'Aventura', 'Gastronomía', 'Deportes', 'Otro'].map(cat => (
-                                    <button 
-                                        key={cat}
-                                        onClick={() => setFilter(cat)}
-                                        className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${filter === cat ? 'bg-slate-900 text-white shadow-lg shadow-slate-200' : 'bg-slate-100 text-slate-500'}`}
-                                    >
-                                        {cat}
-                                    </button>
-                                ))}
+                        {(view === 'explore' || view === 'saved' || view === 'completed') && (
+                            <div ref={searchRef} className="flex gap-2 items-center py-2">
+                                <button 
+                                    onClick={() => {
+                                        setIsSearching(!isSearching);
+                                        if (isSearching) setSearchTerm('');
+                                    }} 
+                                    className={`flex-none p-2.5 rounded-xl transition-all ${isSearching ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}
+                                >
+                                    <i data-lucide={isSearching ? "x" : "search"} className="w-4 h-4"></i>
+                                </button>
+                                
+                                {isSearching ? (
+                                    <input 
+                                        autoFocus
+                                        type="text"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        placeholder="Buscar..."
+                                        className="flex-1 bg-slate-100 border-none rounded-xl py-2 px-4 text-xs font-semibold outline-none focus:ring-2 ring-blue-500/20 animate-in slide-in-from-left-2 duration-200"
+                                    />
+                                ) : (
+                                    <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                                        {['Todos', 'Outdoor', 'Aventura', 'Gastronomía', 'Deportes', 'Otro'].map(cat => (
+                                            <button 
+                                                key={cat}
+                                                onClick={() => setFilter(cat)}
+                                                className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${filter === cat ? 'bg-slate-900 text-white shadow-lg shadow-slate-200' : 'bg-slate-100 text-slate-500'}`}
+                                            >
+                                                {cat}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         )}
                     </header>
@@ -702,6 +839,22 @@
                                                     <div className="flex items-center gap-2"><i data-lucide="at-sign" className="w-3.5 h-3.5 text-pink-400"></i> @{plan.instagram}</div>
                                                 )}
                                             </div>
+                                            {view === 'completed' && (
+                                                <div className="mt-2 pt-4 border-t border-slate-50 flex justify-between items-center">
+                                                    <div className="flex gap-0.5">
+                                                        {[...Array(5)].map((_, i) => (
+                                                            <i 
+                                                                key={i} 
+                                                                data-lucide="star" 
+                                                                className={`w-3 h-3 ${i < plan.rating ? 'text-yellow-400 fill-yellow-400' : 'text-slate-200'}`}
+                                                            ></i>
+                                                        ))}
+                                                    </div>
+                                                    <span className="text-[10px] font-bold text-slate-400">
+                                                        {plan.completedDate ? new Date(plan.completedDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : ''}
+                                                    </span>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 ))}
@@ -941,6 +1094,71 @@
                         </div>
                     )}
 
+                    {/* Modal Formulario de Completado */}
+                    {completionPlan && (
+                        <div className="fixed inset-0 z-[120] flex items-end justify-center">
+                            <div className="modal-overlay absolute inset-0" onClick={() => setCompletionPlan(null)}></div>
+                            <form onSubmit={submitCompletion} className="drawer-content relative w-full max-w-md bg-white rounded-t-[40px] p-6 pb-10 shadow-2xl animate-in slide-in-from-bottom-full duration-300 max-h-[90vh] overflow-y-auto">
+                                <div className="text-center mb-6">
+                                    <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                                        <i data-lucide="sparkles" className="w-6 h-6 text-green-500"></i>
+                                    </div>
+                                    <h2 className="text-xl font-black text-slate-900 tracking-tighter">¡Qué buen plan!</h2>
+                                    <p className="text-[11px] text-slate-500 font-medium">Cuéntanos qué tal te pareció</p>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div className="text-center">
+                                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 tracking-widest">¿Cómo lo puntúas?</label>
+                                        <div className="flex justify-center gap-3" onMouseLeave={() => setHoverRating(0)}>
+                                            {[1, 2, 3, 4, 5].map((star) => (
+                                                <button 
+                                                    key={star} 
+                                                    type="button" 
+                                                    onMouseEnter={() => setHoverRating(star)}
+                                                    onClick={() => setRating(star)}
+                                                    className={`transition-all duration-300 transform ${(hoverRating || rating) >= star ? 'text-yellow-400 scale-125 rotate-12' : 'text-slate-200 scale-100'} hover:scale-150 active:scale-90`}
+                                                >
+                                                    <svg viewBox="0 0 24 24" className="w-8 h-8 fill-current stroke-current stroke-2 drop-shadow-sm"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">¿Qué día fuiste?</label>
+                                        <input type="date" name="date" required defaultValue={new Date().toISOString().split('T')[0]} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-bold text-slate-800 outline-none" />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Un breve comentario</label>
+                                        <textarea name="comment" className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm h-20 outline-none placeholder:text-slate-300" placeholder="Ej: La comida estuvo increíble..."></textarea>
+                                    </div>
+                                </div>
+
+                                <button type="submit" className="w-full mt-6 py-4 bg-slate-900 text-white rounded-[20px] font-black text-xs shadow-xl active:scale-95 transition-all uppercase tracking-widest">Guardar experiencia</button>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* Popup Confirmación Desmarcar Completado */}
+                    {showUncompleteConfirm && (
+                        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6">
+                            <div className="modal-overlay absolute inset-0" onClick={() => setShowUncompleteConfirm(false)}></div>
+                            <div className="bg-white rounded-[32px] p-8 w-full max-w-[320px] relative z-10 shadow-2xl animate-in zoom-in-95 duration-200 text-center">
+                                <div className="bg-orange-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
+                                    <i data-lucide="alert-triangle" className="w-8 h-8 text-orange-500"></i>
+                                </div>
+                                <h3 className="text-xl font-bold text-slate-900 mb-2 tracking-tight">¿Desmarcar plan?</h3>
+                                <p className="text-[11px] text-slate-500 mb-8 leading-relaxed px-4">Se borrará toda la información asociada al plan (puntuación, fecha y comentarios) y se devolverá al feed Explorar.</p>
+                                <div className="flex flex-col gap-3">
+                                    <button onClick={confirmUncomplete} className="w-full py-4 bg-orange-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-orange-100 active:scale-95 transition-all">Sí, desmarcar</button>
+                                    <button onClick={() => setShowUncompleteConfirm(false)} className="w-full py-4 bg-slate-50 text-slate-500 rounded-2xl font-bold text-sm active:scale-95 transition-all">Cancelar</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Modal Detalle Plan */}
                     {selectedPlan && (
                         <div className="fixed inset-0 z-[100] flex items-end justify-center">
@@ -951,7 +1169,7 @@
                                 {/* Hero Image Section */}
                                 <div className="relative h-80 w-full flex items-end">
                                     <img src={selectedPlan.img} className="absolute inset-0 w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-white via-white/40 to-black/10"></div>
+                                    <div className="absolute inset-0 bg-gradient-to-t from-white via-white/95 via-35% to-transparent"></div>
                                     {/* Drag Handle Zone */}
                                     <div 
                                         onPointerDown={handleDragStart}
@@ -962,23 +1180,23 @@
                                         <div className="w-12 h-1.5 bg-white/60 backdrop-blur rounded-full mt-2"></div>
                                     </div>
                                     
-                                    <button onClick={() => setSelectedPlan(null)} className="absolute top-6 left-6 p-2 text-white/70 hover:text-white active:scale-90 transition-all z-30">
+                                    <button onClick={() => setSelectedPlan(null)} className="absolute top-12 left-6 p-2 text-white/70 hover:text-white active:scale-90 transition-all z-30">
                                         <i data-lucide="x" className="w-6 h-6"></i>
                                     </button>
 
-                                    <div className="absolute top-6 right-6 flex gap-2">
+                                    <div className="absolute top-12 right-6 flex gap-2">
                                         <button onClick={() => setFormPlan(selectedPlan)} className="p-3 bg-white/20 backdrop-blur-xl border border-white/30 rounded-2xl text-white shadow-xl active:scale-90 transition-all">
                                             <i key="btn-edit" data-lucide="pencil" className="w-5 h-5 drop-shadow-md"></i>
                                         </button>
                                         <button onClick={() => toggleSave(selectedPlan)} className="p-3 bg-white/20 backdrop-blur-xl border border-white/30 rounded-2xl shadow-xl active:scale-90 transition-all">
                                             <HeartSVG filled={isSaved(selectedPlan.id)} className={`w-6 h-6 ${isSaved(selectedPlan.id) ? 'text-red-500' : 'text-white drop-shadow-md'}`} />
                                         </button>
-                                        <button onClick={() => toggleComplete(selectedPlan.id)} className="p-3 bg-white/20 backdrop-blur-xl border border-white/30 rounded-2xl shadow-xl active:scale-90 transition-all">
+                                        <button onClick={() => toggleComplete(selectedPlan)} className="p-3 bg-white/20 backdrop-blur-xl border border-white/30 rounded-2xl shadow-xl active:scale-90 transition-all">
                                             <i data-lucide="check-circle" className={`w-6 h-6 transition-colors ${completedIds.includes(selectedPlan.id) ? 'text-green-500' : 'text-white drop-shadow-md'}`}></i>
                                         </button>
                                     </div>
 
-                                    <div className="relative p-8 w-full backdrop-blur-[2px] bg-white/10">
+                                    <div className="relative p-8 w-full">
                                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600 mb-2 block bg-blue-50/80 backdrop-blur-md w-fit px-2 py-0.5 rounded-md">{selectedPlan.category}</span>
                                         <h2 className="text-4xl font-black text-slate-900 tracking-tighter mb-2 leading-tight">{selectedPlan.title}</h2>
                                         <p className="text-slate-700 text-sm font-medium leading-relaxed max-w-[90%]">{selectedPlan.description}</p>
@@ -986,6 +1204,23 @@
                                 </div>
 
                                 <div className="p-8 pt-2 space-y-6 mb-8">
+                                    {completedIds.includes(selectedPlan.id) && (
+                                        <div className="bg-green-50/50 p-6 rounded-[32px] border border-green-100 animate-in zoom-in-95">
+                                            <div className="flex justify-between items-center mb-3">
+                                                <div className="flex gap-0.5 text-yellow-400">
+                                                    {[...Array(5)].map((_, i) => (
+                                                        <i key={i} data-lucide="star" className={`w-4 h-4 ${i < selectedPlan.rating ? 'fill-current' : 'text-slate-200'}`}></i>
+                                                    ))}
+                                                </div>
+                                                <span className="text-[10px] font-black text-green-600 uppercase tracking-widest bg-white px-2 py-1 rounded-lg">
+                                                    {new Date(selectedPlan.completedDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                                </span>
+                                            </div>
+                                            {selectedPlan.completionComment && (
+                                                <p className="text-xs text-slate-600 font-medium italic leading-relaxed">"{selectedPlan.completionComment}"</p>
+                                            )}
+                                        </div>
+                                    )}
                                     {selectedPlan.instagram && (
                                         <div className="flex items-start gap-4">
                                             <div className="p-2 bg-pink-50 rounded-xl"><i data-lucide="at-sign" className="w-5 h-5 text-pink-600"></i></div>
@@ -1083,7 +1318,7 @@
                         <button onClick={() => setView('saved')} className={`flex flex-col items-center gap-1.5 ${view === 'saved' ? 'text-blue-600' : 'text-slate-400'}`}>
                             <div className="relative">
                                 <i data-lucide="bookmark" className="w-5 h-5"></i>
-                                {savedPlans.length > 0 && <span key="dot-fav" className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></span>}
+                                {savedIds.length > 0 && <span key="dot-fav" className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></span>}
                             </div>
                             <span className="text-[9px] font-bold uppercase tracking-tighter">Favoritos</span>
                         </button>
