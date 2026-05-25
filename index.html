@@ -334,9 +334,12 @@
 
             useEffect(() => {
                 setIsNavVisible(true);
-                // Sincronizar el scroll al cerrar modales para evitar que la barra se oculte por inercia o scroll previo
                 if (!selectedPlan && !formPlan && !completionPlan && mainRef.current) {
-                    lastScrollTop.current = mainRef.current.scrollTop;
+                    // Pequeño delay para asegurar que el scroll se estabilice tras cerrar el modal
+                    const timer = setTimeout(() => {
+                        if (mainRef.current) lastScrollTop.current = mainRef.current.scrollTop;
+                    }, 100);
+                    return () => clearTimeout(timer);
                 }
             }, [view, selectedPlan, formPlan, completionPlan]);
 
@@ -657,13 +660,19 @@
             };
 
             const handleScroll = (e) => {
+                // Si hay un modal abierto, ignoramos el scroll para la navegación
+                if (selectedPlan || formPlan || completionPlan) return;
+
                 const currentScrollTop = e.currentTarget.scrollTop;
-                // Si scrolleamos hacia abajo y no estamos en el tope superior, escondemos
-                if (currentScrollTop > lastScrollTop.current && currentScrollTop > 60) {
-                    setIsNavVisible(false);
-                } else {
-                    // Si scrolleamos hacia arriba o estamos arriba, mostramos
-                    setIsNavVisible(true);
+                const delta = currentScrollTop - lastScrollTop.current;
+
+                // Umbral para ignorar micro-movimientos o rebotes de inercia (10px)
+                if (Math.abs(delta) < 10) return;
+
+                if (delta > 0 && currentScrollTop > 60) {
+                    if (isNavVisible) setIsNavVisible(false);
+                } else if (delta < 0 || currentScrollTop <= 60) {
+                    if (!isNavVisible) setIsNavVisible(true);
                 }
                 lastScrollTop.current = currentScrollTop;
             };
