@@ -335,7 +335,7 @@
             useEffect(() => {
                 setIsNavVisible(true);
                 if (!selectedPlan && !formPlan && !completionPlan && mainRef.current) {
-                    // Pequeño delay para asegurar que el scroll se estabilice tras cerrar el modal
+                    // Pequeño retardo para asegurar que el scroll se asiente tras cerrar el modal
                     const timer = setTimeout(() => {
                         if (mainRef.current) lastScrollTop.current = mainRef.current.scrollTop;
                     }, 100);
@@ -660,19 +660,21 @@
             };
 
             const handleScroll = (e) => {
-                // Si hay un modal abierto, ignoramos el scroll para la navegación
+                // Si hay un modal abierto, no procesamos el scroll para la barra de navegación
                 if (selectedPlan || formPlan || completionPlan) return;
 
                 const currentScrollTop = e.currentTarget.scrollTop;
                 const delta = currentScrollTop - lastScrollTop.current;
 
-                // Umbral para ignorar micro-movimientos o rebotes de inercia (10px)
+                // Umbral de 10px para evitar que micro-movimientos o el rebote de iOS escondan la barra
                 if (Math.abs(delta) < 10) return;
 
+                // Si scrolleamos hacia abajo y no estamos en el tope, escondemos
                 if (delta > 0 && currentScrollTop > 60) {
-                    if (isNavVisible) setIsNavVisible(false);
+                    setIsNavVisible(false);
                 } else if (delta < 0 || currentScrollTop <= 60) {
-                    if (!isNavVisible) setIsNavVisible(true);
+                    // Si scrolleamos hacia arriba o llegamos al tope, mostramos
+                    setIsNavVisible(true);
                 }
                 lastScrollTop.current = currentScrollTop;
             };
@@ -1306,7 +1308,7 @@
                     )}
 
                     {/* Tab Bar Navegación */}
-                    <nav className={`absolute bottom-0 left-0 right-0 z-50 glass border-t border-slate-100 p-4 px-6 flex justify-between items-center rounded-t-[32px] shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] transition-transform duration-300 ${isNavVisible ? 'translate-y-0' : 'translate-y-full'}`}>
+                    <nav className={`absolute bottom-0 left-0 right-0 z-50 glass border-t border-slate-100 p-4 px-6 flex justify-between items-center rounded-t-[32px] shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] transition-transform duration-300 ${isNavVisible ? 'translate-y-0' : 'translate-y-[150%]'}`}>
                         <button onClick={() => setView('explore')} className={`flex flex-col items-center gap-1.5 ${view === 'explore' ? 'text-blue-600' : 'text-slate-400'}`}>
                             <i data-lucide="filter" className="w-5 h-5"></i>
                             <span className="text-[9px] font-bold uppercase tracking-tighter">Explorar</span>
